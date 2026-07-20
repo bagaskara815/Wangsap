@@ -1,0 +1,39 @@
+# Dependencies & build
+node_modules/
+/build/
+/.svelte-kit/
+/package/
+src-tauri/target/
+dist/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Arch packaging artifacts
+packaging/arch/src/
+packaging/arch/pkg/
+packaging/arch/cargo-home/
+packaging/arch/npm-cache/
+packaging/arch/cargo-target/
+packaging/arch/*.pkg.tar.*
+packaging/arch/*.log
+packaging/arch/*.zst
+
+# Logs / misc
+*.log
+npm-debug.log*
+.turbo/

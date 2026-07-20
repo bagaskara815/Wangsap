@@ -1,0 +1,54 @@
+[[permission]]
+identifier = "allow-list-profiles"
+description = "List WhatsApp account profiles"
+commands.allow = ["list_profiles"]
+
+[[permission]]
+identifier = "allow-create-profile"
+description = "Create a named profile"
+commands.allow = ["create_profile"]
+
+[[permission]]
+identifier = "allow-create-next-profile"
+description = "Create next auto-named profile"
+commands.allow = ["create_next_profile"]
+
+[[permission]]
+identifier = "allow-rename-profile"
+description = "Rename a profile directory"
+commands.allow = ["rename_profile"]
+
+[[permission]]
+identifier = "allow-delete-profile"
+description = "Delete a profile directory"
+commands.allow = ["delete_profile"]
+
+[[permission]]
+identifier = "allow-open-profile"
+description = "Open a WhatsApp profile window"
+commands.allow = ["open_profile"]
+
+[[permission]]
+identifier = "allow-show-profile"
+description = "Show or open a profile window"
+commands.allow = ["show_profile"]
+
+[[permission]]
+identifier = "allow-hide-all-profiles"
+description = "Hide all WhatsApp windows"
+commands.allow = ["hide_all_profiles"]
+
+[[permission]]
+identifier = "allow-open-settings"
+description = "Open the account manager window"
+commands.allow = ["open_settings"]
+
+[[permission]]
+identifier = "allow-set-unread-count"
+description = "Update unread count for tray badge"
+commands.allow = ["set_unread_count"]
+
+[[permission]]
+identifier = "allow-get-unread-total"
+description = "Read aggregated unread total"
+commands.allow = ["get_unread_total"]

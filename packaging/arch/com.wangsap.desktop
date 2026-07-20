@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Wangsap
+GenericName=WhatsApp
+Comment=Unofficial WhatsApp Web client for Linux
+Exec=wangsap
+Icon=com.wangsap
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+StartupNotify=true
+StartupWMClass=com.wangsap
+X-GNOME-UsesNotifications=true
+Keywords=whatsapp;chat;wa;wangsap;

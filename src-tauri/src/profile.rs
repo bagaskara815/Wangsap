@@ -1,0 +1,194 @@
+use std::fs;
+use std::path::PathBuf;
+use tauri::{AppHandle, Manager, State};
+
+use crate::unread::UnreadState;
+use crate::window;
+
+pub const DEFAULT_PROFILE: &str = "default";
+
+/// Resolve `app_data_dir/profiles/<name>` and ensure it exists.
+pub fn profile_dir(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
+    let base = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?;
+    let dir = base.join("profiles").join(sanitize_name(name));
+    fs::create_dir_all(&dir).map_err(|e| format!("create profile dir: {e}"))?;
+    Ok(dir)
+}
+
+pub fn profiles_root(app: &AppHandle) -> Result<PathBuf, String> {
+    let base = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?
+        .join("profiles");
+    fs::create_dir_all(&base).map_err(|e| e.to_string())?;
+    Ok(base)
+}
+
+pub fn sanitize_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .chars()
+        .take(32)
+        .collect()
+}
+
+pub fn list_profile_names(app: &AppHandle) -> Result<Vec<String>, String> {
+    let base = profiles_root(app)?;
+
+    let mut names = Vec::new();
+    for entry in fs::read_dir(&base).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            if let Some(name) = entry.file_name().to_str() {
+                names.push(name.to_string());
+            }
+        }
+    }
+
+    if names.is_empty() {
+        let _ = profile_dir(app, DEFAULT_PROFILE);
+        names.push(DEFAULT_PROFILE.to_string());
+    }
+    names.sort();
+    Ok(names)
+}
+
+/// Next free name: account-2, account-3, ...
+pub fn next_account_name(app: &AppHandle) -> Result<String, String> {
+    let existing = list_profile_names(app)?;
+    let mut n = 2u32;
+    loop {
+        let candidate = format!("account-{n}");
+        if !existing.iter().any(|e| e == &candidate) {
+            return Ok(candidate);
+        }
+        n += 1;
+        if n > 100 {
+            return Err("too many accounts".into());
+        }
+    }
+}
+
+fn close_profile_window(app: &AppHandle, name: &str) {
+    let label = window::window_label(name);
+    if let Some(w) = app.get_webview_window(&label) {
+        // destroy bypasses close-to-tray handler
+        let _ = w.destroy();
+    }
+}
+
+#[tauri::command]
+pub fn list_profiles(app: AppHandle) -> Result<Vec<String>, String> {
+    list_profile_names(&app)
+}
+
+#[tauri::command]
+pub fn create_profile(app: AppHandle, name: String) -> Result<String, String> {
+    let clean = sanitize_name(&name);
+    if clean.is_empty() {
+        return Err("profile name empty".into());
+    }
+    let existing = list_profile_names(&app)?;
+    if existing.iter().any(|e| e == &clean) {
+        return Err("profile already exists".into());
+    }
+    let dir = profile_dir(&app, &clean)?;
+    let _ = crate::tray::rebuild_tray_menu(&app);
+    Ok(dir.display().to_string())
+}
+
+#[tauri::command]
+pub fn create_next_profile(app: AppHandle) -> Result<String, String> {
+    let name = next_account_name(&app)?;
+    profile_dir(&app, &name)?;
+    let _ = crate::tray::rebuild_tray_menu(&app);
+    Ok(name)
+}
+
+#[tauri::command]
+pub fn rename_profile(
+    app: AppHandle,
+    unread: State<UnreadState>,
+    from: String,
+    to: String,
+) -> Result<String, String> {
+    let from = sanitize_name(&from);
+    let to = sanitize_name(&to);
+    if from.is_empty() || to.is_empty() {
+        return Err("invalid name".into());
+    }
+    if from == to {
+        return Ok(to);
+    }
+
+    let names = list_profile_names(&app)?;
+    if !names.iter().any(|n| n == &from) {
+        return Err("source profile not found".into());
+    }
+    if names.iter().any(|n| n == &to) {
+        return Err("target name already exists".into());
+    }
+
+    // Close live window so webview releases data dir locks
+    close_profile_window(&app, &from);
+
+    let root = profiles_root(&app)?;
+    let src = root.join(&from);
+    let dst = root.join(&to);
+    fs::rename(&src, &dst).map_err(|e| format!("rename failed: {e}"))?;
+
+    unread.rename_key(&from, &to);
+    let _ = crate::tray::rebuild_tray_menu(&app);
+    crate::tray::refresh_unread(&app, unread.total());
+
+    Ok(to)
+}
+
+#[tauri::command]
+pub fn delete_profile(
+    app: AppHandle,
+    unread: State<UnreadState>,
+    name: String,
+) -> Result<(), String> {
+    let name = sanitize_name(&name);
+    if name.is_empty() {
+        return Err("invalid name".into());
+    }
+
+    let mut names = list_profile_names(&app)?;
+    if !names.iter().any(|n| n == &name) {
+        return Err("profile not found".into());
+    }
+    if names.len() <= 1 {
+        return Err("cannot delete the last account".into());
+    }
+
+    close_profile_window(&app, &name);
+
+    let dir = profiles_root(&app)?.join(&name);
+    fs::remove_dir_all(&dir).map_err(|e| format!("delete failed: {e}"))?;
+
+    unread.remove_key(&name);
+    names.retain(|n| n != &name);
+
+    // Ensure at least default exists if everything weird
+    if names.is_empty() {
+        let _ = profile_dir(&app, DEFAULT_PROFILE);
+    }
+
+    let _ = crate::tray::rebuild_tray_menu(&app);
+    crate::tray::refresh_unread(&app, unread.total());
+    Ok(())
+}
