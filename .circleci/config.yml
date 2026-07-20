@@ -282,7 +282,7 @@ jobs:
 
             # --- Version tag push (immutable release) ---
             if [[ -n "$TAG_NAME" ]]; then
-              NOTES="$(cat <<EOF
+              NOTES="$(cat \<<EOF
             ## Wangsap \`${TAG_NAME}\`
 
             **Commit:** \`${SHORT}\`  
@@ -323,7 +323,7 @@ jobs:
               exit 0
             fi
 
-            NOTES="$(cat <<EOF
+            NOTES="$(cat \<<EOF
             ## Wangsap continuous build
 
             Rolling build from **\`${BRANCH}\`** — updated on every push.
