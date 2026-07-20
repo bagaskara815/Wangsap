@@ -93,6 +93,18 @@ wangsap
 | `/usr/share/applications/wangsap.desktop` | Alias (matches WM class) |
 | `/usr/share/icons/hicolor/*/apps/{com.wangsap,wangsap}.*` | App icons |
 
+### Other distros / CI packages
+
+| Format | How |
+|--------|-----|
+| `.deb` | CircleCI job `build-deb-rpm`, or `npm run tauri build -- --bundles deb` |
+| `.rpm` | Same job / `--bundles rpm` |
+| Arch `.pkg.tar.zst` | CircleCI job `build-arch`, or `packaging/arch/build.sh` |
+
+**Continuous release:** every push to `main` updates  
+https://github.com/bagaskara815/Wangsap/releases/tag/continuous  
+(changelog + latest deb/rpm/Arch). Setup: [packaging/CIRCLECI.md](./packaging/CIRCLECI.md).
+
 ---
 
 ## Development
