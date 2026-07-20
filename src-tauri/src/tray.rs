@@ -135,8 +135,7 @@ fn show_all(app: &AppHandle) {
     let mut any = false;
     for (label, w) in app.webview_windows() {
         if label.starts_with("wa-") {
-            let _ = w.show();
-            let _ = w.unminimize();
+            window::restore_window(&w);
             any = true;
         }
     }

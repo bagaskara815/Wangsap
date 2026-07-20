@@ -8,6 +8,33 @@ pub fn window_label(profile: &str) -> String {
     format!("wa-{}", profile::sanitize_name(profile))
 }
 
+/// Restore a window after tray hide.
+///
+/// On Linux (esp. KDE Wayland), plain `show()` after `hide()` can leave window
+/// decorations (min/max/close) unresponsive. Nudge decorations + focus +
+/// always-on-top toggle so the compositor rebinds the frame.
+pub fn restore_window(w: &WebviewWindow) {
+    let _ = w.set_ignore_cursor_events(false);
+    let _ = w.set_skip_taskbar(false);
+    let _ = w.set_fullscreen(false);
+    // Re-assert chrome so CSD/SS D buttons work again
+    let _ = w.set_decorations(false);
+    let _ = w.set_decorations(true);
+    let _ = w.set_resizable(true);
+    let _ = w.unminimize();
+    let _ = w.show();
+    // Compositor focus/stacking nudge
+    let _ = w.set_always_on_top(true);
+    let _ = w.set_always_on_top(false);
+    let _ = w.set_focus();
+}
+
+pub fn hide_to_tray(w: &WebviewWindow) {
+    // Keep in taskbar skip while hidden so "closed" feels like tray-only.
+    let _ = w.set_skip_taskbar(true);
+    let _ = w.hide();
+}
+
 pub fn open_profile_window(app: &AppHandle, profile: &str) -> Result<WebviewWindow, String> {
     let clean = profile::sanitize_name(profile);
     if clean.is_empty() {
@@ -17,9 +44,7 @@ pub fn open_profile_window(app: &AppHandle, profile: &str) -> Result<WebviewWind
     let label = window_label(&clean);
 
     if let Some(existing) = app.get_webview_window(&label) {
-        let _ = existing.show();
-        let _ = existing.unminimize();
-        let _ = existing.set_focus();
+        restore_window(&existing);
         if let Some(icon) = app.default_window_icon() {
             let _ = existing.set_icon(icon.clone());
         }
@@ -44,6 +69,10 @@ pub fn open_profile_window(app: &AppHandle, profile: &str) -> Result<WebviewWind
     .inner_size(1280.0, 840.0)
     .min_inner_size(960.0, 640.0)
     .resizable(true)
+    .maximizable(true)
+    .minimizable(true)
+    .closable(true)
+    .decorations(true)
     .fullscreen(false)
     .disable_drag_drop_handler()
     .data_directory(data_dir)
@@ -59,13 +88,21 @@ pub fn open_profile_window(app: &AppHandle, profile: &str) -> Result<WebviewWind
 
     let handle = app.clone();
     let win_label = label.clone();
-    window.on_window_event(move |event| {
-        if let WindowEvent::CloseRequested { api, .. } = event {
+    window.on_window_event(move |event| match event {
+        WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
             if let Some(w) = handle.get_webview_window(&win_label) {
-                let _ = w.hide();
+                hide_to_tray(&w);
             }
         }
+        // If focus returns and chrome is still weird, re-assert decorations once.
+        WindowEvent::Focused(true) => {
+            if let Some(w) = handle.get_webview_window(&win_label) {
+                let _ = w.set_decorations(true);
+                let _ = w.set_resizable(true);
+            }
+        }
+        _ => {}
     });
 
     Ok(window)
@@ -75,9 +112,7 @@ pub fn open_settings_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     const LABEL: &str = "settings";
 
     if let Some(existing) = app.get_webview_window(LABEL) {
-        let _ = existing.show();
-        let _ = existing.unminimize();
-        let _ = existing.set_focus();
+        restore_window(&existing);
         if let Some(icon) = app.default_window_icon() {
             let _ = existing.set_icon(icon.clone());
         }
@@ -89,6 +124,10 @@ pub fn open_settings_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .inner_size(520.0, 560.0)
         .min_inner_size(420.0, 400.0)
         .resizable(true)
+        .maximizable(true)
+        .minimizable(true)
+        .closable(true)
+        .decorations(true)
         .center();
 
     if let Some(icon) = app.default_window_icon() {
@@ -117,9 +156,7 @@ pub fn open_settings(app: AppHandle) -> Result<(), String> {
 pub fn show_profile(app: AppHandle, name: String) -> Result<(), String> {
     let label = window_label(&name);
     if let Some(w) = app.get_webview_window(&label) {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+        restore_window(&w);
         Ok(())
     } else {
         open_profile_window(&app, &name)?;
@@ -131,7 +168,7 @@ pub fn show_profile(app: AppHandle, name: String) -> Result<(), String> {
 pub fn hide_all_profiles(app: AppHandle) -> Result<(), String> {
     for (label, w) in app.webview_windows() {
         if label.starts_with("wa-") {
-            let _ = w.hide();
+            hide_to_tray(&w);
         }
     }
     Ok(())
