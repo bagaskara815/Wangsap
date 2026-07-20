@@ -241,6 +241,10 @@ jobs:
             fi
             export GH_TOKEN="$GITHUB_TOKEN"
 
+            # checkout step lands here — keep path before leaving the repo tree
+            REPO_ROOT="$(pwd)"
+            git -C "$REPO_ROOT" rev-parse --is-inside-work-tree
+
             REPO="${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}"
             SHA="${CIRCLE_SHA1}"
             SHORT="${SHA:0:7}"
@@ -250,10 +254,14 @@ jobs:
             mkdir -p /tmp/release
             cp -v /tmp/ws/deb-rpm/* /tmp/release/ 2>/dev/null || true
             cp -v /tmp/ws/arch/* /tmp/release/ 2>/dev/null || true
-            cd /tmp/release
-            rm -f SHA256SUMS.txt SHA256SUMS-deb-rpm.txt SHA256SUMS-arch.txt
-            sha256sum * > SHA256SUMS.txt 2>/dev/null || true
-            ls -lah
+
+            # drop per-job checksum fragments; build one combined file
+            rm -f /tmp/release/SHA256SUMS-deb-rpm.txt /tmp/release/SHA256SUMS-arch.txt /tmp/release/SHA256SUMS.txt
+            (
+              cd /tmp/release
+              sha256sum * > SHA256SUMS.txt 2>/dev/null || true
+              ls -lah
+            )
 
             mapfile -t FILES < <(find /tmp/release -maxdepth 1 -type f | sort)
             if [[ ${#FILES[@]} -eq 0 ]]; then
@@ -262,16 +270,21 @@ jobs:
             fi
 
             # Changelog: commits since previous continuous release (or last 15)
+            # Always use git -C so we never depend on cwd after handling artifacts.
             PREV_SHA=""
             if gh release view continuous --repo "$REPO" >/dev/null 2>&1; then
               PREV_SHA="$(gh release view continuous --repo "$REPO" --json targetCommitish --jq '.targetCommitish' 2>/dev/null || true)"
             fi
 
-            if [[ -n "$PREV_SHA" ]] && git cat-file -e "${PREV_SHA}^{commit}" 2>/dev/null; then
-              CHANGELOG="$(git log --pretty=format:'- %s (%h)' --no-merges "${PREV_SHA}..${SHA}" | head -n 40)"
+            # ensure we can resolve SHAs (shallow clones)
+            git -C "$REPO_ROOT" fetch --unshallow 2>/dev/null || true
+            git -C "$REPO_ROOT" fetch --tags --force 2>/dev/null || true
+
+            if [[ -n "$PREV_SHA" ]] && git -C "$REPO_ROOT" cat-file -e "${PREV_SHA}^{commit}" 2>/dev/null; then
+              CHANGELOG="$(git -C "$REPO_ROOT" log --pretty=format:'- %s (%h)' --no-merges "${PREV_SHA}..${SHA}" | head -n 40)"
               RANGE="${PREV_SHA:0:7}…${SHORT}"
             else
-              CHANGELOG="$(git log --pretty=format:'- %s (%h)' --no-merges -n 15)"
+              CHANGELOG="$(git -C "$REPO_ROOT" log --pretty=format:'- %s (%h)' --no-merges -n 15)"
               RANGE="recent"
             fi
             if [[ -z "${CHANGELOG// /}" ]]; then
@@ -359,12 +372,10 @@ jobs:
                 --title "Wangsap continuous (${SHORT})" \
                 --notes "$NOTES" \
                 --target "$SHA"
-              # drop old assets then upload fresh (clobber handles same names)
               gh release upload continuous "${FILES[@]}" --repo "$REPO" --clobber
             else
               echo "Creating rolling release: continuous"
-              # lightweight moving tag pointing at this commit
-              git tag -f continuous "$SHA" || true
+              # --target creates/moves the tag on GitHub; no local git tag needed
               gh release create continuous "${FILES[@]}" \
                 --repo "$REPO" \
                 --title "Wangsap continuous (${SHORT})" \
