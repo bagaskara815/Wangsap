@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
   import { onMount } from "svelte";
 
   type Profile = string;
@@ -10,6 +11,8 @@
   let busy = $state("");
   let renameDraft = $state<Record<string, string>>({});
   let newName = $state("");
+  let autostart = $state(false);
+  let startHidden = $state(false);
 
   async function refresh() {
     loading = true;
@@ -98,7 +101,45 @@
     }
   }
 
-  onMount(refresh);
+  async function loadStartup() {
+    try {
+      autostart = await isEnabled();
+    } catch {
+      // autostart plugin unavailable — leave toggle off
+    }
+    try {
+      const s = await invoke<{ start_hidden: boolean }>("get_app_settings");
+      startHidden = !!s.start_hidden;
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  async function toggleAutostart() {
+    error = "";
+    try {
+      if (autostart) await enable();
+      else await disable();
+    } catch (e) {
+      error = String(e);
+      autostart = !autostart;
+    }
+  }
+
+  async function toggleStartHidden() {
+    error = "";
+    try {
+      await invoke("set_app_settings", { settings: { start_hidden: startHidden } });
+    } catch (e) {
+      error = String(e);
+      startHidden = !startHidden;
+    }
+  }
+
+  onMount(() => {
+    refresh();
+    loadStartup();
+  });
 </script>
 
 <main>
@@ -168,6 +209,18 @@
         Quick add
       </button>
     </div>
+  </section>
+
+  <section class="startup">
+    <h2>Startup</h2>
+    <label class="toggle">
+      <input type="checkbox" bind:checked={autostart} onchange={toggleAutostart} />
+      Start with system
+    </label>
+    <label class="toggle">
+      <input type="checkbox" bind:checked={startHidden} onchange={toggleStartHidden} />
+      Start hidden in tray
+    </label>
   </section>
 </main>
 
@@ -319,5 +372,33 @@
 
   .add-row input {
     flex: 1 1 140px;
+  }
+
+  .startup {
+    margin-top: 1.35rem;
+    padding-top: 1rem;
+    border-top: 1px solid #1f2c34;
+  }
+
+  .startup h2 {
+    margin: 0 0 0.65rem;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    padding: 0.25rem 0;
+    cursor: pointer;
+  }
+
+  .toggle input {
+    accent-color: #00a884;
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
   }
 </style>

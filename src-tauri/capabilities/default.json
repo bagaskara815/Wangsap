@@ -10,6 +10,11 @@
     "allow-create-next-profile",
     "allow-rename-profile",
     "allow-delete-profile",
-    "allow-open-profile"
+    "allow-open-profile",
+    "allow-get-app-settings",
+    "allow-set-app-settings",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

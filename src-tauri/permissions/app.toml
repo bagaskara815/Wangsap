@@ -57,3 +57,13 @@ commands.allow = ["set_unread_count"]
 identifier = "allow-get-unread-total"
 description = "Read aggregated unread total"
 commands.allow = ["get_unread_total"]
+
+[[permission]]
+identifier = "allow-get-app-settings"
+description = "Read persisted app settings"
+commands.allow = ["get_app_settings"]
+
+[[permission]]
+identifier = "allow-set-app-settings"
+description = "Write persisted app settings"
+commands.allow = ["set_app_settings"]
