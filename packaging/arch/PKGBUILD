@@ -1,8 +1,10 @@
 # Maintainer: Bagas
 # Local Arch package for Wangsap (com.wangsap)
+# Built from a live tree snapshot (not chroot-clean); version comes from
+# src-tauri/Cargo.toml — the canonical version source for the project.
 
 pkgname=wangsap
-pkgver=0.1.0
+pkgver="$(sed -n 's/^version = "\([^"]*\)".*/\1/p' ../../src-tauri/Cargo.toml | head -n1)"
 pkgrel=1
 pkgdesc="Unofficial WhatsApp Web desktop client for Linux (Tauri 2)"
 arch=('x86_64' 'aarch64')
@@ -33,7 +35,6 @@ source=()
 sha256sums=()
 
 _project="$(cd "${startdir}/../.." && pwd)"
-_cargo_target="${srcdir}/cargo-target"
 
 prepare() {
   # Snapshot project into srcdir (skip heavy/ephemeral dirs)
@@ -41,6 +42,8 @@ prepare() {
   mkdir -p "${srcdir}/${pkgname}"
   bsdtar \
     --exclude='./node_modules' \
+    --exclude='./build' \
+    --exclude='./.svelte-kit' \
     --exclude='./src-tauri/target' \
     --exclude='./.git' \
     --exclude='./packaging/arch/pkg' \
@@ -49,35 +52,36 @@ prepare() {
     --exclude='./packaging/arch/*.log' \
     -cf - -C "${_project}" . \
     | bsdtar -xf - -C "${srcdir}/${pkgname}"
+
+  cd "${srcdir}/${pkgname}"
+  export npm_config_cache="${npm_config_cache:-${srcdir}/npm-cache}"
+  npm ci
+  # npm >= 12 gates postinstall scripts; esbuild needs its native binary
+  if npm install-scripts ls 2>/dev/null | grep -q esbuild; then
+    npm install-scripts approve esbuild 2>/dev/null || true
+    npm rebuild esbuild 2>/dev/null || true
+  fi
 }
 
 build() {
   cd "${srcdir}/${pkgname}"
 
-  # Prefer rustup toolchain if present (Arch rust package optional)
+  # Prefer rustup toolchain if present (Arch rust package optional).
+  # CARGO_* stay overridable so CI can point them at cached locations.
   export PATH="${HOME}/.cargo/bin:${PATH}"
-  export CARGO_HOME="${srcdir}/cargo-home"
-  export npm_config_cache="${srcdir}/npm-cache"
-  export CARGO_TARGET_DIR="${srcdir}/cargo-target"
+  export CARGO_HOME="${CARGO_HOME:-${srcdir}/cargo-home}"
+  export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${srcdir}/cargo-target}"
+  export npm_config_cache="${npm_config_cache:-${srcdir}/npm-cache}"
 
-  # Ensure esbuild postinstall allowed if npm blocks scripts
-  if command -v npm >/dev/null; then
-    npm install --include=dev
-    # unblock esbuild native binary if needed
-    if npm install-scripts ls 2>/dev/null | grep -q esbuild; then
-      npm install-scripts approve esbuild 2>/dev/null || true
-      npm rebuild esbuild 2>/dev/null || true
-    fi
-  fi
-
-  # Release binary only (no deb/rpm/appimage — Arch uses this PKGBUILD)
+  # Release binary only (no deb/rpm — Arch uses this PKGBUILD)
   npm run tauri build -- --no-bundle
 }
 
 package() {
   cd "${srcdir}/${pkgname}"
 
-  local _bin="${srcdir}/cargo-target/release/wangsap"
+  local _target="${CARGO_TARGET_DIR:-${srcdir}/cargo-target}"
+  local _bin="${_target}/release/wangsap"
   if [[ ! -x "${_bin}" ]]; then
     _bin="${srcdir}/${pkgname}/src-tauri/target/release/wangsap"
   fi
@@ -85,11 +89,11 @@ package() {
   install -Dm755 "${_bin}" "${pkgdir}/usr/bin/wangsap"
 
   # Desktop entry (system)
-  install -Dm644 "${_project}/packaging/arch/com.wangsap.desktop" \
+  install -Dm644 packaging/arch/com.wangsap.desktop \
     "${pkgdir}/usr/share/applications/com.wangsap.desktop"
   # Alias matching binary WM class
   sed 's/^Icon=com.wangsap$/Icon=wangsap/; s/^StartupWMClass=com.wangsap$/StartupWMClass=wangsap/' \
-    "${_project}/packaging/arch/com.wangsap.desktop" \
+    packaging/arch/com.wangsap.desktop \
     | install -Dm644 /dev/stdin "${pkgdir}/usr/share/applications/wangsap.desktop"
 
   # Icons
@@ -119,32 +123,6 @@ package() {
     "${pkgdir}/usr/share/icons/hicolor/scalable/apps/wangsap.svg"
 
   # License + docs
-  if [[ -f LICENSE ]]; then
-    install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
-  else
-    install -Dm644 /dev/stdin "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE" <<'EOF'
-MIT License
-
-Copyright (c) 2026 Bagas
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-EOF
-  fi
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
 }

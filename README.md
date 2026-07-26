@@ -41,19 +41,33 @@ If WhatsApp changes Web, Wangsap can break until updated. That’s the trade-off
 | Backend | Rust |
 | Frontend (settings UI) | Svelte 5 + SvelteKit (static) |
 | Content | WhatsApp Web via OS WebView (**WebKitGTK** on Linux) |
-| Packaging | Arch `PKGBUILD` → `.pkg.tar.zst` (also Tauri deb/rpm/AppImage targets) |
+| Packaging | Arch `PKGBUILD` → `.pkg.tar.zst` (also Tauri deb/rpm targets) |
 
 ---
 
 ## Features
 
 - **Single window WhatsApp Web** with persistent session storage per profile  
-- **System tray** — left-click show; menu for accounts / hide / quit  
+- **System tray** — left-click show; menu for accounts / hide / quit; "Reload windows" fallback for broken frames  
 - **Close to tray** (session stays alive)  
 - **Multi-account** — tray → New account, or **Manage accounts…** (rename / delete / open)  
-- **Unread badge** on tray icon (best-effort from page title `(N) …`)  
-- **Notification bridge** (best-effort native desktop notifications)  
+- **Unread badge** on tray icon (best-effort from page title `(N) …`, handles `99+`)  
+- **Clickable notifications** — clicking a desktop notification focuses the account's window  
+- **External links open in your browser** — the webview stays pinned to `web.whatsapp.com`  
+- **Single instance** — a second launch focuses the running app (protects profile data)  
+- **Window size/position remembered** across restarts  
+- **Autostart** + "start hidden in tray" toggles in Manage accounts  
 - **Wayland taskbar icons** via installed hicolor icons + desktop files (`wangsap` / `com.wangsap`)
+
+### Architecture note
+
+The Svelte app is only the settings window. Everything inside the WhatsApp
+window comes from an **injected init script** (`src-tauri/injected/whatsapp.js`,
+loaded by `build_inject()` in `src-tauri/src/window.rs`): the notification
+bridge, the unread-count parser (page title), and the external-link shim.
+That script is the most breakage-prone part when WhatsApp Web changes.
+`withGlobalTauri` stays enabled because that script needs `window.__TAURI__`
+on the remote page.
 
 ### Known limitations
 
@@ -118,7 +132,7 @@ https://github.com/bagaskara815/Wangsap/releases/tag/continuous
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
 cd /path/to/wa
-npm install
+npm ci
 npm run tauri:dev
 ```
 
@@ -155,15 +169,24 @@ On first run after the id rename, profiles from `~/.local/share/com.bagas.wa/pro
 
 ```
 wa/
-├── src/                    # Svelte settings / shell UI
+├── src/                    # Svelte settings UI (root route = account manager)
+├── static/                 # Static assets (favicon)
 ├── src-tauri/
-│   ├── src/                # Rust: window, tray, profiles, badge, desktop install
+│   ├── src/                # Rust: window, tray, profiles, badge, notify, desktop install
+│   ├── injected/           # JS injected into web.whatsapp.com
 │   ├── icons/              # App icon set
 │   └── tauri.conf.json     # identifier: com.wangsap
-├── packaging/arch/         # PKGBUILD + build.sh
+├── packaging/arch/         # PKGBUILD + build.sh (+ CIRCLECI.md docs)
+├── .circleci/              # checks + deb/rpm + Arch + GitHub Release pipeline
 ├── LICENSE
 └── README.md
 ```
+
+### Versioning
+
+`src-tauri/Cargo.toml` is the canonical version: `tauri.conf.json` inherits it
+and the PKGBUILD reads it at build time. Bump it there (plus the cosmetic
+`package.json` version) when releasing.
 
 ---
 

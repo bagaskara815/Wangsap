@@ -1,13 +1,13 @@
 # CircleCI — Wangsap continuous packages + GitHub Releases
 #
-# Every push to main:
+# Every push (any branch): fast `checks` job — svelte-check, cargo fmt, clippy.
+# Pushes to main and v* tags additionally:
 #   1. build .deb + .rpm (Ubuntu)
 #   2. build Arch .pkg.tar.zst
-#   3. publish/update GitHub Release "continuous" with artifacts + changelog
+#   3. publish/update GitHub Release "continuous" (main) or immutable v* release
 #
-# Optional versioned releases still work on tags v*:
+# Versioned releases:
 #   git tag v0.1.0 && git push origin v0.1.0
-#   → separate immutable GitHub Release for that tag
 #
 # Required env (Project Settings → Environment Variables):
 #   GITHUB_TOKEN = classic PAT `repo` OR fine-grained Contents: Read/Write
@@ -61,6 +61,66 @@ commands:
             - ~/.cargo/git
 
 jobs:
+  checks:
+    executor: ubuntu_tauri
+    steps:
+      - checkout
+
+      - run:
+          name: Install system dependencies (WebKitGTK dev stack for clippy)
+          command: |
+            sudo apt-get update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              build-essential \
+              curl \
+              wget \
+              file \
+              libxdo-dev \
+              libssl-dev \
+              libgtk-3-dev \
+              libwebkit2gtk-4.1-dev \
+              libayatana-appindicator3-dev \
+              librsvg2-dev
+
+      - install_rust
+
+      - restore_cache:
+          keys:
+            - npm-v1-{{ checksum "package-lock.json" }}
+            - npm-v1-
+
+      - run:
+          name: npm ci
+          command: npm ci
+
+      - save_cache:
+          key: npm-v1-{{ checksum "package-lock.json" }}
+          paths:
+            - ~/.npm
+
+      - run:
+          name: svelte-check
+          command: npm run check
+
+      - run:
+          # tauri::generate_context! embeds ../build, so clippy needs it
+          name: Frontend build (needed by generate_context!)
+          command: npm run build
+
+      - restore_cargo_cache
+
+      - run:
+          name: cargo fmt + clippy
+          no_output_timeout: 30m
+          command: |
+            export PATH="$HOME/.cargo/bin:$PATH"
+            cd src-tauri
+            cargo fmt --check
+            cargo clippy --all-targets --locked -- -D warnings
+            cargo test --locked
+
+      - save_cargo_cache
+
   build-deb-rpm:
     executor: ubuntu_tauri
     steps:
@@ -95,10 +155,7 @@ jobs:
 
       - run:
           name: npm ci
-          command: |
-            npm ci
-            npm install-scripts approve esbuild 2>/dev/null || true
-            npm rebuild esbuild 2>/dev/null || true
+          command: npm ci
 
       - save_cache:
           key: npm-v1-{{ checksum "package-lock.json" }}
@@ -118,13 +175,12 @@ jobs:
           name: Collect artifacts
           command: |
             mkdir -p /tmp/ws/deb-rpm
-            find src-tauri/target/release/bundle/deb -type f -name '*.deb' -exec cp -v {} /tmp/ws/deb-rpm/ \;
-            find src-tauri/target/release/bundle -type f -name '*.rpm' -exec cp -v {} /tmp/ws/deb-rpm/ \; 2>/dev/null || true
-            if [[ -f src-tauri/target/release/wangsap ]]; then
-              cp -v src-tauri/target/release/wangsap /tmp/ws/deb-rpm/wangsap-linux-x86_64
-            fi
+            find src-tauri/target/release/bundle -type f \( -name '*.deb' -o -name '*.rpm' \) -exec cp -v {} /tmp/ws/deb-rpm/ \;
+            cp -v src-tauri/target/release/wangsap /tmp/ws/deb-rpm/wangsap-linux-x86_64
             cd /tmp/ws/deb-rpm
-            sha256sum * > SHA256SUMS-deb-rpm.txt || true
+            # fail loudly if either bundle is missing
+            ls ./*.deb ./*.rpm
+            sha256sum ./* > SHA256SUMS-deb-rpm.txt
             ls -lah
 
       - store_artifacts:
@@ -179,20 +235,47 @@ jobs:
               --exclude=.git \
               -cf - . \
               | tar -C /home/builder/project -xf -
+            rustc --version | tee /home/builder/project/rust-version.txt
             chown -R builder:builder /home/builder/project
+
+      - restore_cache:
+          keys:
+            - arch-cargo-v1-{{ checksum "rust-version.txt" }}-{{ checksum "src-tauri/Cargo.lock" }}
+            - arch-cargo-v1-{{ checksum "rust-version.txt" }}-
+
+      - restore_cache:
+          keys:
+            - arch-npm-v1-{{ checksum "package-lock.json" }}
+            - arch-npm-v1-
 
       - run:
           name: makepkg (Arch package)
           no_output_timeout: 45m
           command: |
+            chown -R builder:builder /home/builder
             su - builder -c '
               set -euo pipefail
+              export CARGO_HOME=/home/builder/.cargo
+              export CARGO_TARGET_DIR=/home/builder/cargo-target
+              export npm_config_cache=/home/builder/.npm
               cd /home/builder/project/packaging/arch
               rustc -V || true
               cargo -V || true
               makepkg -f --noconfirm
               ls -lah
             '
+
+      - save_cache:
+          key: arch-cargo-v1-{{ checksum "rust-version.txt" }}-{{ checksum "src-tauri/Cargo.lock" }}
+          paths:
+            - /home/builder/.cargo/registry
+            - /home/builder/.cargo/git
+            - /home/builder/cargo-target
+
+      - save_cache:
+          key: arch-npm-v1-{{ checksum "package-lock.json" }}
+          paths:
+            - /home/builder/.npm
 
       - run:
           name: Collect Arch artifacts
@@ -224,10 +307,12 @@ jobs:
           at: /tmp/ws
 
       - run:
-          name: Install GitHub CLI
+          name: Install GitHub CLI (pinned tarball — not tied to Ubuntu repos)
           command: |
-            sudo apt-get update
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y gh
+            GH_VERSION=2.63.2
+            curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" | tar xz -C /tmp
+            sudo install "/tmp/gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh
+            gh --version
 
       - run:
           name: Publish GitHub Release (continuous or version tag)
@@ -389,19 +474,40 @@ jobs:
 workflows:
   build-and-release:
     jobs:
+      # Fast quality gate on every branch push and tag
+      - checks:
+          filters:
+            tags:
+              only: /.*/
+      # Heavy builds + release only on main and v* tags
       - build-deb-rpm:
+          requires:
+            - checks
           filters:
+            branches:
+              only:
+                - main
+                - master
             tags:
-              only: /.*/
+              only: /^v.*/
       - build-arch:
+          requires:
+            - checks
           filters:
+            branches:
+              only:
+                - main
+                - master
             tags:
-              only: /.*/
+              only: /^v.*/
       - publish-github-release:
           requires:
             - build-deb-rpm
             - build-arch
           filters:
-            # run on all branch pushes + all tags (job itself decides continuous vs v*)
+            branches:
+              only:
+                - main
+                - master
             tags:
-              only: /.*/
+              only: /^v.*/

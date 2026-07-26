@@ -6,7 +6,8 @@ No version tag required.
 
 | Step | What happens |
 |------|----------------|
-| Push to `main` | Build `.deb` + `.rpm` + Arch package |
+| Any push | Fast `checks` job: svelte-check, `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test` |
+| Push to `main` | Additionally build `.deb` + `.rpm` + Arch package (gated on `checks`) |
 | Then | Update GitHub Release **`continuous`** (rolling) |
 | Notes | Changelog = commits since previous continuous build |
 | Assets | Replaced each time (`--clobber`) |
@@ -14,7 +15,9 @@ No version tag required.
 Link (after first green pipeline):  
 https://github.com/bagaskara815/Wangsap/releases/tag/continuous
 
-Pushes to other branches still **build** (artifacts on CircleCI) but **do not** update the Release.
+Pushes to other branches run only the fast `checks` job — the heavy package
+builds and the Release update run on `main` and `v*` tags. The Arch job caches
+cargo/npm keyed on the toolchain + lockfiles, so warm rebuilds are much faster.
 
 ## Optional: immutable version tags
 

@@ -17,6 +17,10 @@ const ICON_256: &[u8] = include_bytes!("../icons/128x128@2x.png");
 const ICON_512: &[u8] = include_bytes!("../icons/icon.png");
 const ICON_SVG: &[u8] = include_bytes!("../icons/whatsapp.svg");
 
+/// Single source for the desktop entry (also installed by the Arch package);
+/// only Exec= differs at runtime.
+const DESKTOP_TEMPLATE: &str = include_str!("../../packaging/arch/com.wangsap.desktop");
+
 pub fn install() {
     if let Err(e) = install_inner() {
         eprintln!("[wangsap] desktop icon install: {e}");
@@ -58,23 +62,7 @@ fn install_inner() -> Result<(), String> {
         .replace('"', "\\\"");
 
     // Prefer reverse-DNS icon name for GTK app id; StartupWMClass covers both.
-    let desktop = format!(
-        r#"[Desktop Entry]
-Type=Application
-Version=1.0
-Name=Wangsap
-GenericName=WhatsApp
-Comment=WhatsApp Web for Linux
-Exec="{exe_s}"
-Icon={APP_ID}
-Terminal=false
-Categories=Network;InstantMessaging;Chat;
-StartupNotify=true
-StartupWMClass={APP_ID}
-X-GNOME-UsesNotifications=true
-Keywords=whatsapp;chat;wa;wangsap;
-"#
-    );
+    let desktop = DESKTOP_TEMPLATE.replace("Exec=wangsap", &format!("Exec=\"{exe_s}\""));
 
     changed |= write_if_changed(&apps.join(format!("{APP_ID}.desktop")), desktop.as_bytes())?;
 
@@ -85,7 +73,10 @@ Keywords=whatsapp;chat;wa;wangsap;
             &format!("StartupWMClass={APP_ID}"),
             &format!("StartupWMClass={BIN_ID}"),
         );
-    changed |= write_if_changed(&apps.join(format!("{BIN_ID}.desktop")), desktop_bin.as_bytes())?;
+    changed |= write_if_changed(
+        &apps.join(format!("{BIN_ID}.desktop")),
+        desktop_bin.as_bytes(),
+    )?;
 
     // Drop stale ids from earlier iterations
     for stale in ["wa-linux.desktop", "com.bagas.wa.desktop"] {

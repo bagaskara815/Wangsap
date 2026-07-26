@@ -2,7 +2,11 @@
   "name": "wangsap",
   "version": "0.1.0",
   "description": "WhatsApp Web desktop client for Linux — com.wangsap (Tauri 2 + Svelte)",
+  "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",

@@ -10,7 +10,8 @@ use std::sync::{LazyLock, Mutex};
 use tauri::AppHandle;
 
 /// tag → last notification id, so repeated messages replace instead of stack.
-static TAG_IDS: LazyLock<Mutex<HashMap<String, u32>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static TAG_IDS: LazyLock<Mutex<HashMap<String, u32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[tauri::command]
 pub fn notify_profile(
