@@ -68,7 +68,10 @@ pub fn list_profile_names(app: &AppHandle) -> Result<Vec<String>, String> {
 
 /// Next free name: account-2, account-3, ...
 pub fn next_account_name(app: &AppHandle) -> Result<String, String> {
-    let existing = list_profile_names(app)?;
+    next_free_account_name(&list_profile_names(app)?)
+}
+
+fn next_free_account_name(existing: &[String]) -> Result<String, String> {
     let mut n = 2u32;
     loop {
         let candidate = format!("account-{n}");
@@ -202,4 +205,41 @@ pub async fn delete_profile(app: AppHandle, name: String) -> Result<(), String> 
     let _ = crate::tray::rebuild_tray_menu(&app);
     crate::tray::refresh_unread(&app, unread.total());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_keeps_allowed_chars() {
+        assert_eq!(sanitize_name("work-2_ok"), "work-2_ok");
+    }
+
+    #[test]
+    fn sanitize_replaces_and_trims() {
+        assert_eq!(sanitize_name("héllo world!"), "h_llo_world");
+        assert_eq!(sanitize_name("___x___"), "x");
+        assert_eq!(sanitize_name("../../etc"), "etc");
+    }
+
+    #[test]
+    fn sanitize_caps_length_and_handles_empty() {
+        assert_eq!(sanitize_name(&"a".repeat(64)).len(), 32);
+        assert_eq!(sanitize_name(""), "");
+        assert_eq!(sanitize_name("!!!"), "");
+    }
+
+    #[test]
+    fn next_name_skips_taken_slots() {
+        let existing = vec!["default".to_string(), "account-2".to_string()];
+        assert_eq!(next_free_account_name(&existing).unwrap(), "account-3");
+        assert_eq!(next_free_account_name(&[]).unwrap(), "account-2");
+    }
+
+    #[test]
+    fn next_name_errors_when_full() {
+        let existing: Vec<String> = (2..=100).map(|n| format!("account-{n}")).collect();
+        assert!(next_free_account_name(&existing).is_err());
+    }
 }

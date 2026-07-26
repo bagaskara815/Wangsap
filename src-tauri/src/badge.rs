@@ -119,3 +119,22 @@ fn glyph3x5(c: char) -> Option<[u8; 5]> {
         _ => return None,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn label_caps_at_nine_plus() {
+        assert_eq!(badge_label(0), "0");
+        assert_eq!(badge_label(9), "9");
+        assert_eq!(badge_label(10), "9+");
+        assert_eq!(badge_label(999), "9+");
+    }
+
+    #[test]
+    fn tray_image_renders_with_and_without_badge() {
+        assert!(make_tray_image(0).is_ok());
+        assert!(make_tray_image(120).is_ok());
+    }
+}

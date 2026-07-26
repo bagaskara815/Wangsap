@@ -58,3 +58,34 @@ pub fn set_unread_count(
     crate::tray::refresh_unread(&app, state.total());
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn total_sums_profiles() {
+        let s = UnreadState::new();
+        s.set("a", 2);
+        s.set("b", 3);
+        assert_eq!(s.total(), 5);
+    }
+
+    #[test]
+    fn total_saturates_instead_of_overflowing() {
+        let s = UnreadState::new();
+        s.set("a", u32::MAX);
+        s.set("b", u32::MAX);
+        assert_eq!(s.total(), u32::MAX);
+    }
+
+    #[test]
+    fn zero_removes_entry_and_rename_moves_count() {
+        let s = UnreadState::new();
+        s.set("a", 4);
+        s.rename_key("a", "b");
+        assert_eq!(s.total(), 4);
+        s.set("b", 0);
+        assert_eq!(s.total(), 0);
+    }
+}

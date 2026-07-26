@@ -218,7 +218,7 @@ pub fn open_settings_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         return Ok(existing);
     }
 
-    let mut builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("/settings".into()))
+    let mut builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("/".into()))
         .title("Wangsap — Accounts")
         .inner_size(520.0, 560.0)
         .min_inner_size(420.0, 400.0)
@@ -285,4 +285,27 @@ fn build_inject(profile: &str) -> String {
     // anyway since this lands inside a single-quoted JS string.
     let safe = profile.replace('\\', "\\\\").replace('\'', "\\'");
     INJECT_TEMPLATE.replace("__WA_PROFILE_PLACEHOLDER__", &safe)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn label_round_trips_profile_name() {
+        let label = window_label("work-2");
+        assert_eq!(label, "wa-work-2");
+        assert_eq!(profile_from_label(&label).as_deref(), Some("work-2"));
+    }
+
+    #[test]
+    fn label_sanitizes_input() {
+        assert_eq!(window_label("wéird name"), "wa-w_ird_name");
+    }
+
+    #[test]
+    fn non_wa_labels_yield_none() {
+        assert_eq!(profile_from_label("settings"), None);
+        assert_eq!(profile_from_label("wa-"), None);
+    }
 }
