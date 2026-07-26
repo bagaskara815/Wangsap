@@ -24,6 +24,7 @@ pub fn run() {
             window::show_profile,
             window::hide_all_profiles,
             window::open_settings,
+            window::open_external,
             unread::set_unread_count,
             unread::get_unread_total,
         ])

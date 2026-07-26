@@ -255,97 +255,22 @@ pub fn hide_all_profiles(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Open an http(s) URL in the system browser. Called by the injected script
+/// for links that would otherwise navigate the WhatsApp webview away.
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    let parsed = tauri::Url::parse(&url).map_err(|e| format!("url: {e}"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("unsupported scheme".into());
+    }
+    tauri_plugin_opener::open_url(parsed.as_str(), None::<&str>).map_err(|e| e.to_string())
+}
+
+const INJECT_TEMPLATE: &str = include_str!("../injected/whatsapp.js");
+
 fn build_inject(profile: &str) -> String {
+    // Profile names are sanitized to [A-Za-z0-9_-] upstream; escape defensively
+    // anyway since this lands inside a single-quoted JS string.
     let safe = profile.replace('\\', "\\\\").replace('\'', "\\'");
-    format!(
-        r#"(function () {{
-  window.__WA_PROFILE__ = '{safe}';
-  try {{
-    document.documentElement.setAttribute('data-wa-linux', '1');
-    document.documentElement.setAttribute('data-wa-profile', '{safe}');
-  }} catch (e) {{}}
-
-  try {{
-    var OriginalNotification = window.Notification;
-    function WaNotification(title, options) {{
-      options = options || {{}};
-      var body = options.body || '';
-      var sent = false;
-      try {{
-        var t = window.__TAURI__;
-        if (t && t.core && t.core.invoke) {{
-          t.core.invoke('plugin:notification|notify', {{
-            options: {{ title: String(title || 'WhatsApp'), body: String(body) }}
-          }}).catch(function () {{}});
-          sent = true;
-        }} else if (t && t.notification && t.notification.sendNotification) {{
-          t.notification.sendNotification({{
-            title: String(title || 'WhatsApp'),
-            body: String(body)
-          }});
-          sent = true;
-        }}
-      }} catch (err) {{}}
-      if (!sent && OriginalNotification) {{
-        try {{ return new OriginalNotification(title, options); }} catch (err2) {{}}
-      }}
-      var noop = function () {{}};
-      return {{ close: noop, onclick: null, onshow: null, onerror: null, onclose: null }};
-    }}
-    WaNotification.permission = 'granted';
-    WaNotification.requestPermission = function () {{ return Promise.resolve('granted'); }};
-    if (OriginalNotification) {{
-      WaNotification.maxActions = OriginalNotification.maxActions;
-    }}
-    window.Notification = WaNotification;
-  }} catch (e) {{}}
-
-  try {{
-    var lastCount = -1;
-    function parseUnread() {{
-      var n = 0;
-      try {{
-        var m = document.title && document.title.match(/^\((\d+)\)/);
-        if (m) n = parseInt(m[1], 10) || 0;
-      }} catch (e1) {{}}
-      return n;
-    }}
-    function report(n) {{
-      if (n === lastCount) return;
-      lastCount = n;
-      try {{
-        var t = window.__TAURI__;
-        if (t && t.core && t.core.invoke) {{
-          t.core.invoke('set_unread_count', {{
-            profile: window.__WA_PROFILE__ || 'default',
-            count: n
-          }}).catch(function () {{}});
-        }}
-      }} catch (e) {{}}
-    }}
-    function tick() {{
-      try {{ report(parseUnread()); }} catch (e) {{}}
-    }}
-    var obs = new MutationObserver(tick);
-    var start = function () {{
-      try {{
-        obs.observe(document.documentElement, {{
-          subtree: true,
-          childList: true,
-          characterData: true,
-          attributes: true,
-          attributeFilter: ['title', 'aria-label']
-        }});
-      }} catch (e) {{}}
-      tick();
-      setInterval(tick, 4000);
-    }};
-    if (document.readyState === 'loading') {{
-      document.addEventListener('DOMContentLoaded', start);
-    }} else {{
-      start();
-    }}
-  }} catch (e) {{}}
-}})();"#
-    )
+    INJECT_TEMPLATE.replace("__WA_PROFILE_PLACEHOLDER__", &safe)
 }

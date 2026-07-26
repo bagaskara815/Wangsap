@@ -44,6 +44,11 @@ description = "Open the account manager window"
 commands.allow = ["open_settings"]
 
 [[permission]]
+identifier = "allow-open-external"
+description = "Open an http(s) link in the system browser"
+commands.allow = ["open_external"]
+
+[[permission]]
 identifier = "allow-set-unread-count"
 description = "Update unread count for tray badge"
 commands.allow = ["set_unread_count"]
