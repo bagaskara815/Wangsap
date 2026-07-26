@@ -4,7 +4,7 @@
   "description": "WhatsApp Web → notification + unread IPC",
   "windows": ["wa-*"],
   "remote": {
-    "urls": ["https://web.whatsapp.com/*", "https://*.whatsapp.com/*"]
+    "urls": ["https://web.whatsapp.com/*"]
   },
   "permissions": [
     "notification:default",

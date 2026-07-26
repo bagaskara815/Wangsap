@@ -158,7 +158,19 @@ pub fn open_profile_window(app: &AppHandle, profile: &str) -> Result<WebviewWind
     .fullscreen(false)
     .disable_drag_drop_handler()
     .data_directory(data_dir)
-    .initialization_script(&inject);
+    .initialization_script(&inject)
+    .on_navigation(|url| match url.scheme() {
+        // Keep the webview pinned to WhatsApp Web; anything else would render
+        // arbitrary sites chrome-less inside a trusted-looking window.
+        "https" if url.host_str() == Some("web.whatsapp.com") => true,
+        "http" | "https" => {
+            let _ = tauri_plugin_opener::open_url(url.as_str(), None::<&str>);
+            false
+        }
+        // about:blank appears during webview setup.
+        "about" => true,
+        _ => false,
+    });
 
     if let Some(icon) = app.default_window_icon() {
         builder = builder
