@@ -4273,6 +4273,7 @@ name = "wangsap"
 version = "0.1.0"
 dependencies = [
  "image",
+ "notify-rust",
  "serde",
  "serde_json",
  "tauri",

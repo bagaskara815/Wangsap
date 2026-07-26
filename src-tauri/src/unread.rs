@@ -58,8 +58,3 @@ pub fn set_unread_count(
     crate::tray::refresh_unread(&app, state.total());
     Ok(())
 }
-
-#[tauri::command]
-pub fn get_unread_total(state: State<UnreadState>) -> u32 {
-    state.total()
-}

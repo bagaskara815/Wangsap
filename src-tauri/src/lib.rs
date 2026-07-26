@@ -1,5 +1,6 @@
 mod badge;
 mod linux_desktop;
+mod notify;
 mod profile;
 mod settings;
 mod tray;
@@ -45,7 +46,7 @@ pub fn run() {
             window::open_settings,
             window::open_external,
             unread::set_unread_count,
-            unread::get_unread_total,
+            notify::notify_profile,
             settings::get_app_settings,
             settings::set_app_settings,
         ])

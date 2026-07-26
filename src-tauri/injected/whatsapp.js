@@ -27,11 +27,19 @@
         var t = window.__TAURI__;
         if (t && t.core && t.core.invoke) {
           var payload = {
+            profile: window.__WA_PROFILE__ || 'default',
             title: String(title || 'WhatsApp'),
             body: String(options.body || '')
           };
           if (options.tag) payload.tag = String(options.tag);
-          t.core.invoke('plugin:notification|notify', { options: payload }).catch(function () {});
+          // notify_profile gives click-to-focus; plugin notify is the fallback.
+          t.core.invoke('notify_profile', payload).catch(function () {
+            t.core
+              .invoke('plugin:notification|notify', {
+                options: { title: payload.title, body: payload.body }
+              })
+              .catch(function () {});
+          });
           sent = true;
         }
       } catch (err) {}

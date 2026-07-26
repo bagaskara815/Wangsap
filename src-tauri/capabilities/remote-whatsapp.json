@@ -12,6 +12,7 @@
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",
     "allow-set-unread-count",
-    "allow-open-external"
+    "allow-open-external",
+    "allow-notify-profile"
   ]
 }

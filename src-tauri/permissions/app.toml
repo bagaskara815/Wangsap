@@ -54,9 +54,9 @@ description = "Update unread count for tray badge"
 commands.allow = ["set_unread_count"]
 
 [[permission]]
-identifier = "allow-get-unread-total"
-description = "Read aggregated unread total"
-commands.allow = ["get_unread_total"]
+identifier = "allow-notify-profile"
+description = "Show a desktop notification that focuses the profile on click"
+commands.allow = ["notify_profile"]
 
 [[permission]]
 identifier = "allow-get-app-settings"
