@@ -158,9 +158,25 @@ fn reload_windows(app: &AppHandle) {
 }
 
 pub fn show_all(app: &AppHandle) {
-    let profiles = profile::list_profile_names(app)
-        .unwrap_or_else(|_| vec![profile::DEFAULT_PROFILE.to_string()]);
-    for name in &profiles {
-        window::restore_profile(app, name);
+    // Restore only windows that are already live; opening a window per account
+    // here is too aggressive. With nothing live, open just the first profile.
+    let mut any = false;
+    for (label, w) in app.webview_windows() {
+        if label.starts_with("wa-") {
+            window::restore_window(&w);
+            any = true;
+        }
+    }
+    if !any {
+        let profiles = profile::list_profile_names(app)
+            .unwrap_or_else(|_| vec![profile::DEFAULT_PROFILE.to_string()]);
+        // Prefer "default"; the sorted list would put e.g. "account-2" first.
+        let name = profiles
+            .iter()
+            .find(|p| p.as_str() == profile::DEFAULT_PROFILE)
+            .or_else(|| profiles.first())
+            .map(|s| s.as_str())
+            .unwrap_or(profile::DEFAULT_PROFILE);
+        let _ = window::open_profile_window(app, name);
     }
 }
