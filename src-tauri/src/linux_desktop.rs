@@ -23,26 +23,39 @@ pub fn install() {
     }
 }
 
+/// `$XDG_DATA_HOME` if set to an absolute path, else `~/.local/share`.
+fn data_home(home: &Path) -> PathBuf {
+    match std::env::var_os("XDG_DATA_HOME") {
+        Some(v) if Path::new(&v).is_absolute() => PathBuf::from(v),
+        _ => home.join(".local/share"),
+    }
+}
+
 fn install_inner() -> Result<(), String> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .ok_or("HOME not set")?;
-    let hicolor = home.join(".local/share/icons/hicolor");
-    let apps = home.join(".local/share/applications");
+    let share = data_home(&home);
+    let hicolor = share.join("icons/hicolor");
+    let apps = share.join("applications");
 
+    let mut changed = false;
     for name in [APP_ID, BIN_ID] {
-        write_icon(&hicolor, "32x32", "png", name, ICON_32)?;
-        write_icon(&hicolor, "64x64", "png", name, ICON_64)?;
-        write_icon(&hicolor, "128x128", "png", name, ICON_128)?;
-        write_icon(&hicolor, "256x256", "png", name, ICON_256)?;
-        write_icon(&hicolor, "512x512", "png", name, ICON_512)?;
-        write_icon(&hicolor, "scalable", "svg", name, ICON_SVG)?;
+        changed |= write_icon(&hicolor, "32x32", "png", name, ICON_32)?;
+        changed |= write_icon(&hicolor, "64x64", "png", name, ICON_64)?;
+        changed |= write_icon(&hicolor, "128x128", "png", name, ICON_128)?;
+        changed |= write_icon(&hicolor, "256x256", "png", name, ICON_256)?;
+        changed |= write_icon(&hicolor, "512x512", "png", name, ICON_512)?;
+        changed |= write_icon(&hicolor, "scalable", "svg", name, ICON_SVG)?;
     }
 
     fs::create_dir_all(&apps).map_err(|e| e.to_string())?;
 
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_s = exe.to_string_lossy().replace('"', "\\\"");
+    let exe_s = exe
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
 
     // Prefer reverse-DNS icon name for GTK app id; StartupWMClass covers both.
     let desktop = format!(
@@ -63,7 +76,7 @@ Keywords=whatsapp;chat;wa;wangsap;
 "#
     );
 
-    fs::write(apps.join(format!("{APP_ID}.desktop")), &desktop).map_err(|e| e.to_string())?;
+    changed |= write_if_changed(&apps.join(format!("{APP_ID}.desktop")), desktop.as_bytes())?;
 
     // Binary-name desktop (KWin often uses resourceClass = binary name)
     let desktop_bin = desktop
@@ -72,35 +85,42 @@ Keywords=whatsapp;chat;wa;wangsap;
             &format!("StartupWMClass={APP_ID}"),
             &format!("StartupWMClass={BIN_ID}"),
         );
-    fs::write(apps.join(format!("{BIN_ID}.desktop")), desktop_bin).map_err(|e| e.to_string())?;
+    changed |= write_if_changed(&apps.join(format!("{BIN_ID}.desktop")), desktop_bin.as_bytes())?;
 
     // Drop stale ids from earlier iterations
     for stale in ["wa-linux.desktop", "com.bagas.wa.desktop"] {
-        let p = apps.join(stale);
-        let _ = fs::remove_file(p);
+        if fs::remove_file(apps.join(stale)).is_ok() {
+            changed = true;
+        }
     }
 
-    migrate_profiles_if_needed(&home);
+    migrate_profiles_if_needed(&share);
 
-    let _ = Command::new("update-desktop-database").arg(&apps).status();
-    let _ = Command::new("gtk-update-icon-cache")
-        .args(["-f", "-t"])
-        .arg(&hicolor)
-        .status();
-    let _ = Command::new("kbuildsycoca6")
-        .arg("--noincremental")
-        .status();
-    let _ = Command::new("kbuildsycoca5")
-        .arg("--noincremental")
-        .status();
+    // The cache refreshers (kbuildsycoca especially) can take seconds — keep
+    // them off the startup path, and skip them entirely when nothing changed.
+    if changed {
+        std::thread::spawn(move || {
+            let _ = Command::new("update-desktop-database").arg(&apps).status();
+            let _ = Command::new("gtk-update-icon-cache")
+                .args(["-f", "-t"])
+                .arg(&hicolor)
+                .status();
+            let _ = Command::new("kbuildsycoca6")
+                .arg("--noincremental")
+                .status();
+            let _ = Command::new("kbuildsycoca5")
+                .arg("--noincremental")
+                .status();
+        });
+    }
 
     Ok(())
 }
 
 /// One-shot: copy old com.bagas.wa profiles → com.wangsap if target empty.
-fn migrate_profiles_if_needed(home: &Path) {
-    let old = home.join(".local/share/com.bagas.wa/profiles");
-    let new = home.join(".local/share/com.wangsap/profiles");
+fn migrate_profiles_if_needed(share: &Path) {
+    let old = share.join("com.bagas.wa/profiles");
+    let new = share.join("com.wangsap/profiles");
     if !old.is_dir() {
         return;
     }
@@ -131,15 +151,23 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Write only when content differs. Returns whether the file was (re)written.
+fn write_if_changed(path: &Path, bytes: &[u8]) -> Result<bool, String> {
+    if fs::read(path).map(|cur| cur == bytes).unwrap_or(false) {
+        return Ok(false);
+    }
+    fs::write(path, bytes).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 fn write_icon(
     hicolor: &Path,
     size_dir: &str,
     ext: &str,
     name: &str,
     bytes: &[u8],
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let dir = hicolor.join(size_dir).join("apps");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    fs::write(dir.join(format!("{name}.{ext}")), bytes).map_err(|e| e.to_string())?;
-    Ok(())
+    write_if_changed(&dir.join(format!("{name}.{ext}")), bytes)
 }

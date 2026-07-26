@@ -18,7 +18,7 @@ impl UnreadState {
     pub fn total(&self) -> u32 {
         self.counts
             .lock()
-            .map(|m| m.values().copied().sum())
+            .map(|m| m.values().fold(0u32, |acc, v| acc.saturating_add(*v)))
             .unwrap_or(0)
     }
 

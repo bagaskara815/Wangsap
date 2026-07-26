@@ -10,13 +10,12 @@ use crate::window;
 
 pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let menu = build_menu(app)?;
-    let icon = match badge::make_tray_image(0) {
-        Ok(i) => i,
-        Err(_) => app.default_window_icon().unwrap().clone(),
-    };
+    // A tray without an icon still beats panicking at startup.
+    let icon = badge::make_tray_image(0)
+        .ok()
+        .or_else(|| app.default_window_icon().cloned());
 
-    let _tray = TrayIconBuilder::with_id("main-tray")
-        .icon(icon)
+    let mut builder = TrayIconBuilder::with_id("main-tray")
         .menu(&menu)
         .tooltip("Wangsap")
         .show_menu_on_left_click(false)
@@ -55,8 +54,12 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             {
                 show_all(tray.app_handle());
             }
-        })
-        .build(app)?;
+        });
+
+    if let Some(icon) = icon {
+        builder = builder.icon(icon);
+    }
+    let _tray = builder.build(app)?;
 
     Ok(())
 }

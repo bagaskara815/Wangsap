@@ -1,19 +1,25 @@
 //! Tray icon badge: composite red pill + count onto base PNG.
 
+use std::sync::LazyLock;
+
 use image::{Rgba, RgbaImage};
 use tauri::image::Image;
 
 const BASE_PNG: &[u8] = include_bytes!("../icons/32x32.png");
 
-/// Build a tray `Image` with optional unread badge (0 = plain icon).
-pub fn make_tray_image(unread: u32) -> Result<Image<'static>, String> {
+/// Base icon decoded and normalized to 32x32 once; every unread change clones it.
+static BASE: LazyLock<Result<RgbaImage, String>> = LazyLock::new(|| {
     let img = image::load_from_memory(BASE_PNG).map_err(|e| e.to_string())?;
     let mut rgba = img.to_rgba8();
-
-    // Normalize to 32x32
     if rgba.width() != 32 || rgba.height() != 32 {
         rgba = image::imageops::resize(&rgba, 32, 32, image::imageops::FilterType::Lanczos3);
     }
+    Ok(rgba)
+});
+
+/// Build a tray `Image` with optional unread badge (0 = plain icon).
+pub fn make_tray_image(unread: u32) -> Result<Image<'static>, String> {
+    let mut rgba = BASE.as_ref().map_err(Clone::clone)?.clone();
 
     if unread > 0 {
         draw_badge(&mut rgba, unread);
@@ -23,6 +29,15 @@ pub fn make_tray_image(unread: u32) -> Result<Image<'static>, String> {
     let h = rgba.height();
     let raw = rgba.into_raw();
     Ok(Image::new_owned(raw, w, h))
+}
+
+/// Text drawn inside the badge circle; capped for the tiny 3x5 font.
+pub(crate) fn badge_label(count: u32) -> String {
+    if count > 9 {
+        "9+".to_string()
+    } else {
+        count.to_string()
+    }
 }
 
 fn draw_badge(img: &mut RgbaImage, count: u32) {
@@ -55,11 +70,7 @@ fn draw_badge(img: &mut RgbaImage, count: u32) {
         }
     }
 
-    let label = if count > 9 {
-        "9+".to_string()
-    } else {
-        count.to_string()
-    };
+    let label = badge_label(count);
 
     // Tiny 3x5 bitmap font
     let glyphs: Vec<[u8; 5]> = label.chars().filter_map(glyph3x5).collect();
