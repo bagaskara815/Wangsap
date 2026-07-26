@@ -37,12 +37,13 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 "settings" => {
                     let _ = window::open_settings_window(app);
                 }
+                "reload_windows" => reload_windows(app),
                 "quit" => app.exit(0),
-                other if other.starts_with("profile:") => {
-                    let name = other.trim_start_matches("profile:");
-                    let _ = window::open_profile_window(app, name);
+                other => {
+                    if let Some(name) = other.strip_prefix("profile:") {
+                        let _ = window::open_profile_window(app, name);
+                    }
                 }
-                _ => {}
             }
         })
         .on_tray_icon_event(|tray, event| {
@@ -113,7 +114,15 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let hide_all = MenuItem::with_id(app, "hide_all", "Hide all", true, None::<&str>)?;
     let new_account = MenuItem::with_id(app, "new_account", "New account", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Manage accounts…", true, None::<&str>)?;
-    let sep = PredefinedMenuItem::separator(app)?;
+    let reload = MenuItem::with_id(
+        app,
+        "reload_windows",
+        "Reload windows (fix frame)",
+        true,
+        None::<&str>,
+    )?;
+    let sep1 = PredefinedMenuItem::separator(app)?;
+    let sep2 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
     Menu::with_items(
@@ -121,28 +130,34 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &[
             &show_all,
             &hide_all,
-            &sep,
+            &sep1,
             &profiles_sub,
             &new_account,
             &settings,
-            &sep,
+            &reload,
+            &sep2,
             &quit,
         ],
     )
 }
 
-fn show_all(app: &AppHandle) {
-    let mut any = false;
-    for (label, w) in app.webview_windows() {
-        if label.starts_with("wa-") {
-            window::restore_window(&w);
-            any = true;
-        }
+/// Hard fallback for broken window chrome (KDE Wayland): destroy and reopen
+/// every live WA window. Full WhatsApp Web reload — only via explicit menu.
+fn reload_windows(app: &AppHandle) {
+    let live: Vec<String> = app
+        .webview_windows()
+        .keys()
+        .filter_map(|label| window::profile_from_label(label))
+        .collect();
+    for name in live {
+        window::restore_profile_hard(app, &name);
     }
-    if !any {
-        let _ = window::open_profile_window(app, profile::DEFAULT_PROFILE);
-    } else if let Some(w) = app.get_webview_window(&window::window_label(profile::DEFAULT_PROFILE))
-    {
-        let _ = w.set_focus();
+}
+
+pub fn show_all(app: &AppHandle) {
+    let profiles = profile::list_profile_names(app)
+        .unwrap_or_else(|_| vec![profile::DEFAULT_PROFILE.to_string()]);
+    for name in &profiles {
+        window::restore_profile(app, name);
     }
 }

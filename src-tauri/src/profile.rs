@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager, State};
+use std::time::Duration;
+use tauri::{AppHandle, Manager};
 
 use crate::unread::UnreadState;
 use crate::window;
@@ -81,11 +82,36 @@ pub fn next_account_name(app: &AppHandle) -> Result<String, String> {
     }
 }
 
-fn close_profile_window(app: &AppHandle, name: &str) {
+/// Destroy the profile's window and block until `Destroyed` has fired, so the
+/// webview releases its locks on the data dir before we touch it. Must only be
+/// called from async commands (blocking the main thread here would deadlock:
+/// the destroy is processed on the main event loop).
+fn destroy_window_and_wait(app: &AppHandle, name: &str, timeout: Duration) -> Result<(), String> {
     let label = window::window_label(name);
-    if let Some(w) = app.get_webview_window(&label) {
-        // destroy bypasses close-to-tray handler
-        let _ = w.destroy();
+    if app.get_webview_window(&label).is_none() {
+        return Ok(());
+    }
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    window::destroy_then(app, &label, move |_| {
+        let _ = tx.send(());
+    })?;
+    rx.recv_timeout(timeout)
+        .map_err(|_| "window did not close in time".to_string())
+}
+
+/// WebKit's helper processes can hold files for a beat after `Destroyed`.
+fn retry_fs<T>(mut op: impl FnMut() -> std::io::Result<T>) -> Result<T, String> {
+    const ATTEMPTS: u32 = 5;
+    let mut attempt = 1;
+    loop {
+        match op() {
+            Ok(v) => return Ok(v),
+            Err(e) if attempt >= ATTEMPTS => return Err(e.to_string()),
+            Err(_) => {
+                attempt += 1;
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }
     }
 }
 
@@ -118,12 +144,7 @@ pub fn create_next_profile(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn rename_profile(
-    app: AppHandle,
-    unread: State<UnreadState>,
-    from: String,
-    to: String,
-) -> Result<String, String> {
+pub async fn rename_profile(app: AppHandle, from: String, to: String) -> Result<String, String> {
     let from = sanitize_name(&from);
     let to = sanitize_name(&to);
     if from.is_empty() || to.is_empty() {
@@ -141,14 +162,14 @@ pub fn rename_profile(
         return Err("target name already exists".into());
     }
 
-    // Close live window so webview releases data dir locks
-    close_profile_window(&app, &from);
+    destroy_window_and_wait(&app, &from, Duration::from_secs(5))?;
 
     let root = profiles_root(&app)?;
     let src = root.join(&from);
     let dst = root.join(&to);
-    fs::rename(&src, &dst).map_err(|e| format!("rename failed: {e}"))?;
+    retry_fs(|| fs::rename(&src, &dst)).map_err(|e| format!("rename failed: {e}"))?;
 
+    let unread = app.state::<UnreadState>();
     unread.rename_key(&from, &to);
     let _ = crate::tray::rebuild_tray_menu(&app);
     crate::tray::refresh_unread(&app, unread.total());
@@ -157,17 +178,13 @@ pub fn rename_profile(
 }
 
 #[tauri::command]
-pub fn delete_profile(
-    app: AppHandle,
-    unread: State<UnreadState>,
-    name: String,
-) -> Result<(), String> {
+pub async fn delete_profile(app: AppHandle, name: String) -> Result<(), String> {
     let name = sanitize_name(&name);
     if name.is_empty() {
         return Err("invalid name".into());
     }
 
-    let mut names = list_profile_names(&app)?;
+    let names = list_profile_names(&app)?;
     if !names.iter().any(|n| n == &name) {
         return Err("profile not found".into());
     }
@@ -175,19 +192,13 @@ pub fn delete_profile(
         return Err("cannot delete the last account".into());
     }
 
-    close_profile_window(&app, &name);
+    destroy_window_and_wait(&app, &name, Duration::from_secs(5))?;
 
     let dir = profiles_root(&app)?.join(&name);
-    fs::remove_dir_all(&dir).map_err(|e| format!("delete failed: {e}"))?;
+    retry_fs(|| fs::remove_dir_all(&dir)).map_err(|e| format!("delete failed: {e}"))?;
 
+    let unread = app.state::<UnreadState>();
     unread.remove_key(&name);
-    names.retain(|n| n != &name);
-
-    // Ensure at least default exists if everything weird
-    if names.is_empty() {
-        let _ = profile_dir(&app, DEFAULT_PROFILE);
-    }
-
     let _ = crate::tray::rebuild_tray_menu(&app);
     crate::tray::refresh_unread(&app, unread.total());
     Ok(())
